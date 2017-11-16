@@ -82,6 +82,7 @@ void wake_next()
 
 void exit_all() {
    exit(0);
+   kill(next_pid, SIGQUIT);
 }
 
 void my_sleep()
