@@ -1,96 +1,92 @@
-#include <errno.h>
-#include <sys/wait.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#include <string.h>
 #include <signal.h>
-#include <setjmp.h>
 #include <fcntl.h>
-#include <pthread.h>
-#define buf 10
+#include <time.h>
 
-pthread_mutex_t lock;
+int N, fd;
 
-void sig_usr (int signo)
+pid_t pid[3];
+pid_t next_pid;
+clock_t begin_time, end_time;
+
+void wake_next();
+void exit_all();
+void my_sleep();
+
+int main(int argc, char ** argv)
 {
-	/*sigset_t sigset;
-	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGUSR1);
-	sigprocmask(SIG_BLOCK,&sigset, NULL);
+   if(argc < 3) {
+       printf("Need N, filepath\n");
+       return -1;
+   }
 
-	sigwait(&sigset,&signo);*/
-	printf("%d\n",getpid());
-//	sigprocmask(SIG_UNBLOCK,&sigset,NULL);
+   if(signal(SIGUSR1, wake_next) == SIG_ERR) {
+       fprintf(stderr, "Failed to set sigusr1 handler\n");
+       return -1;
+   }
+   if(signal(SIGQUIT, exit_all) == SIG_ERR) {
+       fprintf(stderr, "Failed to set sigquit handler\n");
+       return -1;
+   }
 
-//	longjmp(jumpbuffer,1);
+   N = atoi(argv[1]);
+   if((fd = open(argv[2], O_RDWR | O_CREAT, 0644)) == 0) {
+       fprintf(stderr, "Failed to open file");
+       return -1;
+   }
+
+   pwrite(fd, "0            ", 14, 0);
+
+   pid[0] = getpid();
+   if((pid[1] = fork()) == 0) {
+       if((pid[2] = fork()) == 0) {
+           next_pid = pid[0];
+           begin_time = clock();
+           kill(next_pid, SIGUSR1);
+           my_sleep();
+       } else {
+           next_pid = pid[2];
+           my_sleep();
+       }
+   } else {
+       next_pid = pid[1];
+       my_sleep();
+   }
+
+   return 0;
 }
 
-int main(int argc, char **argv)
-{	int fd;
-	pthread_mutex_init(&lock,NULL);
-	int count = 0;
-	FILE *fp;
-	int i;
-	char buff[buf];
-	struct sigaction usrsig;
-	usrsig.sa_handler =sig_usr;
-	sigemptyset(&usrsig.sa_mask);
-	usrsig.sa_flags=0;
-	sigaction(SIGUSR1,&usrsig,0);
-	if(!(argv[1]>0))
-		printf("insert positive integer");
+void wake_next()
+{
+   char buffer[256];
 
-	fd = open(argv[2],O_RDWR|O_CREAT|O_TRUNC);
-	pwrite(fd,"0",1,0);
+   pread(fd, buffer, 14, 0);
+   int now = atoi(buffer);
 
-	pid_t next,ppid,granmaduh;
-	granmaduh = getpid();
-	if ((next = fork()) <0 )
-	{ 
-			fprintf(stderr, "fork() error");
-			exit(1);
-	 }
-	else if (next == 0  )
-	{
-		
-		next = fork();
-		if (next >0)
-		{
-			sleep(2);
-		}
-		else 
-		{
-			next = granmaduh;	
-			sleep(3);
-		}
-	sleep(1);
-	}
-	//setjmp(jumpbuffer);
-	while(1)		
-	{	int signo; 
-		int status;
-		sigset_t sigset;
-		sigemptyset(&sigset);
-		sigaddset(&sigset, SIGUSR1);
-		sigprocmask(SIG_BLOCK,&sigset, NULL);	
-		pthread_mutex_lock(&lock);
-		if (i<argv[1])
-		read(fd,buff,10);
-//		printf("initial%c\n",buff[0]);
-		i = atoi(buff);
- 		++i;
-		snprintf(buff,buf,"%d",i);
-		fd = open(argv[2],O_RDWR|O_CREAT|O_TRUNC);
-		write(fd,buff,1);
-		kill(next, SIGUSR1);
-		pause();	
-		printf("%c\n",buff[0]);
-		pthread_mutex_unlock(&lock);
-		sleep(1);	
-	}
-//	while(1)
-//	{}
+   if(now >= N) {
+       end_time = clock();
+       printf("Time: %f\n", (double)(end_time - begin_time) / CLOCKS_PER_SEC);
+       close(fd);
+       kill(pid[0], SIGQUIT);
+       exit(1);
+   }
 
-	
+   sprintf(buffer, "%d                ", now + 1);
+   pwrite(fd, buffer, 14, 0);
+
+   kill(next_pid, SIGUSR1);
+}
+
+void exit_all() {
+   exit(0);
+}
+
+void my_sleep()
+{
+   while(1) {
+       sleep(10);
+   }
 }
